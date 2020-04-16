@@ -8,6 +8,7 @@ from icontract._globals import CallableT
 from icontract._types import Contract, Snapshot
 from icontract.errors import ViolationError
 
+
 # pylint: disable=protected-access
 
 # pylint does not play with typing.Mapping.
@@ -323,6 +324,14 @@ def decorate_with_checker(func: CallableT) -> CallableT:
 
     def wrapper(*args, **kwargs):  # type: ignore
         """Wrap func by checking the preconditions and postconditions."""
+        in_progress = getattr(wrapper, "__in_progress__")  # type: bool
+        # If this wrapper is already checking the contracts for the wrapped function, avoid a recursive loop by skipping
+        # any subsequent contract checks for the same function.
+        if in_progress:
+            return func(*args, **kwargs)
+        # Otherwise set this flag to true and continue.
+        setattr(wrapper, "__in_progress__", True)
+
         preconditions = getattr(wrapper, "__preconditions__")  # type: List[List[Contract]]
         snapshots = getattr(wrapper, "__postcondition_snapshots__")  # type: List[Snapshot]
         postconditions = getattr(wrapper, "__postconditions__")  # type: List[Contract]
@@ -375,6 +384,7 @@ def decorate_with_checker(func: CallableT) -> CallableT:
             for contract in postconditions:
                 _assert_postcondition(contract=contract, resolved_kwargs=resolved_kwargs)
 
+        setattr(wrapper, "__in_progress__", False)
         return result
 
     # Copy __doc__ and other properties so that doctests can run
@@ -384,6 +394,10 @@ def decorate_with_checker(func: CallableT) -> CallableT:
     assert not hasattr(wrapper, "__postcondition_snapshots__"), \
         "Expected no postcondition snapshots set on a pristine contract checker."
     assert not hasattr(wrapper, "__postconditions__"), "Expected no postconditions set on a pristine contract checker."
+
+    # This flag is used to avoid recursively checking contracts for the same function while contract checking is already
+    # in progress.
+    setattr(wrapper, "__in_progress__", False)
 
     # Precondition is a list of condition groups (i.e. disjunctive normal form):
     # each group consists of AND'ed preconditions, while the groups are OR'ed.
